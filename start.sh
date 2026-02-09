@@ -261,15 +261,35 @@ execute_script() {
     
     if [ "$index" -ge 0 ] && [ "$index" -lt "${#scripts[@]}" ]; then
         local selected_script="${scripts[$index]}"
-        echo -e "${BLUE}Führe aus: $(basename "$selected_script")${NC}"
+        local script_name=$(basename "$selected_script")
+        echo -e "${BLUE}Führe aus: $script_name${NC}"
         
-        # Module installieren
+        # Prüfe ob requirements.txt für dieses Skript existiert
+        local req_file="$PYTHON_DIR/requirements_${script_name%.py}.txt"
+        if [ -f "$req_file" ]; then
+            echo -e "${YELLOW}Requirements.txt gefunden für $script_name${NC}"
+            echo -e "${CYAN}Möchtest du die Abhängigkeiten installieren? (y/n)${NC}"
+            read -p "> " install_req
+            if [[ "$install_req" =~ ^[Yy]$ ]]; then
+                install_requirements "$req_file"
+            fi
+        fi
+        
+        # Module installieren (automatische Erkennung)
+        echo -e "${BLUE}Prüfe und installiere benötigte Module...${NC}"
         install_python_modules "$selected_script"
         
-        # Skript ausführen
+        # Skript ausführen mit Fehlerbehandlung
         echo -e "${CYAN}=== Skript-Ausgabe ===${NC}"
         cd "$PYTHON_DIR"
-        python "$selected_script"
+        
+        if python "$selected_script"; then
+            echo -e "${GREEN}✓ Skript erfolgreich ausgeführt${NC}"
+        else
+            echo -e "${RED}✗ Skript-Ausführung fehlgeschlagen${NC}"
+            echo -e "${YELLOW}Überprüfe den Code und die installierten Module${NC}"
+        fi
+        
         echo -e "${CYAN}======================${NC}"
     else
         echo -e "${RED}Ungültige Auswahl.${NC}"
@@ -392,6 +412,37 @@ clean_pycache() {
     
     echo ""
     read -p "Drücke Enter um fortzufahren..."
+}
+
+# Funktion zum Installieren von requirements.txt
+install_requirements() {
+    local req_file="$1"
+    
+    if [ ! -f "$req_file" ]; then
+        echo -e "${RED}Requirements-Datei nicht gefunden: $req_file${NC}"
+        return 1
+    fi
+    
+    echo -e "${BLUE}Installiere Pakete aus $req_file...${NC}"
+    
+    while IFS= read -r line; do
+        # Überspringe Kommentare und leere Zeilen
+        if [[ "$line" =~ ^[[:space:]]*# ]] || [ -z "$line" ]; then
+            continue
+        fi
+        
+        # Entferne Versionsspezifikationen (>=, ==, etc.)
+        package=$(echo "$line" | cut -d'=' -f1 | cut -d'>' -f1 | cut -d'<' -f1 | cut -d'!' -f1 | xargs)
+        
+        if [ ! -z "$package" ]; then
+            echo -e "${YELLOW}Installiere $package...${NC}"
+            pip install "$line" 2>/dev/null || {
+                echo -e "${RED}Fehler bei der Installation von $package${NC}"
+            }
+        fi
+    done < "$req_file"
+    
+    echo -e "${GREEN}Installation aus requirements.txt abgeschlossen.${NC}"
 }
 
 # Funktion zum Öffnen der Shell
@@ -704,7 +755,18 @@ package_manager() {
                 read -p "> " update_all
                 if [[ "$update_all" =~ ^[Yy]$ ]]; then
                     echo -e "${BLUE}Aktualisiere alle Pakete...${NC}"
-                    pip list --outdated --format=freeze | grep -v '^-e' | cut -d = -f 1 | xargs -n1 pip install -U
+                    # Alternative Methode ohne xargs Probleme
+                    local outdated_packages=$(pip list --outdated --format=freeze | grep -v '^-e' | cut -d = -f 1)
+                    if [ ! -z "$outdated_packages" ]; then
+                        echo "$outdated_packages" | while read -r package; do
+                            if [ ! -z "$package" ]; then
+                                echo -e "${YELLOW}Aktualisiere $package...${NC}"
+                                pip install -U "$package"
+                            fi
+                        done
+                    else
+                        echo -e "${GREEN}Alle Pakete sind aktuell.${NC}"
+                    fi
                 fi
                 ;;
             0)
@@ -816,6 +878,73 @@ EOF
     read -p "Drücke Enter um fortzufahren..."
 }
 
+# Funktion zum Installieren von requirements.txt
+install_requirements_menu() {
+    echo -e "${BLUE}=== Requirements.txt installieren ===${NC}"
+    
+    if [ ! -d "$PYTHON_DIR" ]; then
+        echo -e "${RED}Verzeichnis $PYTHON_DIR existiert nicht.${NC}"
+        return 1
+    fi
+    
+    # Suche nach requirements.txt Dateien
+    local req_files=($(find "$PYTHON_DIR" -name "requirements*.txt" -type f 2>/dev/null))
+    
+    if [ ${#req_files[@]} -eq 0 ]; then
+        echo -e "${YELLOW}Keine requirements.txt Dateien gefunden.${NC}"
+        echo -e "${CYAN}Möchtest du eine requirements.txt Datei erstellen? (y/n)${NC}"
+        read -p "> " create_req
+        if [[ "$create_req" =~ ^[Yy]$ ]]; then
+            generate_requirements
+        fi
+        return 0
+    fi
+    
+    echo -e "${WHITE}Gefundene requirements.txt Dateien:${NC}"
+    echo -e "${GRAY}Nummer | Dateiname${NC}"
+    echo -e "${GRAY}───────┼────────────────────────────────────────${NC}"
+    
+    for i in "${!req_files[@]}"; do
+        local filename=$(basename "${req_files[$i]}")
+        printf "${CYAN}%-6d │ ${WHITE}%s${NC}\n" $((i+1)) "$filename"
+    done
+    
+    echo ""
+    echo -e "${YELLOW}Gib die Nummer der requirements.txt Datei ein (0 für Abbruch):${NC}"
+    read -p "> " req_choice
+    
+    if [ "$req_choice" -eq 0 ] 2>/dev/null; then
+        echo -e "${GRAY}Abgebrochen.${NC}"
+        return 0
+    fi
+    
+    local index=$((req_choice-1))
+    
+    if [ "$index" -ge 0 ] && [ "$index" -lt "${#req_files[@]}" ]; then
+        local selected_req="${req_files[$index]}"
+        echo -e "${BLUE}Installiere aus: $(basename "$selected_req")${NC}"
+        
+        # Zeige Inhalt der Datei
+        echo -e "${CYAN}=== Inhalt der requirements.txt ===${NC}"
+        cat "$selected_req"
+        echo -e "${CYAN}================================${NC}"
+        
+        echo -e "${YELLOW}Möchtest du diese Pakete installieren? (y/n)${NC}"
+        read -p "> " confirm_install
+        
+        if [[ "$confirm_install" =~ ^[Yy]$ ]]; then
+            install_requirements "$selected_req"
+        else
+            echo -e "${GRAY}Installation abgebrochen.${NC}"
+        fi
+    else
+        echo -e "${RED}Ungültige Auswahl.${NC}"
+    fi
+    
+    echo ""
+    read -p "Drücke Enter um fortzufahren..."
+}
+
 # Hauptmenü anzeigen
 show_main_menu() {
     echo -e "${BOLD}${WHITE}=== Hauptmenü ===${NC}"
@@ -826,9 +955,10 @@ show_main_menu() {
     echo -e "${CYAN}5.${NC} Shell öffnen"
     echo -e "${CYAN}6.${NC} Git Manager"
     echo -e "${CYAN}7.${NC} Requirements.txt Generator"
-    echo -e "${CYAN}8.${NC} Package Manager"
-    echo -e "${CYAN}9.${NC} Performance Monitor"
-    echo -e "${CYAN}10.${NC} Umgebung neu einrichten"
+    echo -e "${CYAN}8.${NC} Requirements.txt installieren"
+    echo -e "${CYAN}9.${NC} Package Manager"
+    echo -e "${CYAN}10.${NC} Performance Monitor"
+    echo -e "${CYAN}11.${NC} Umgebung neu einrichten"
     echo -e "${CYAN}0.${NC} Beenden"
     echo ""
     echo -e "${YELLOW}Wähle eine Option:${NC}"
@@ -873,12 +1003,15 @@ main() {
                 generate_requirements
                 ;;
             8)
-                package_manager
+                install_requirements_menu
                 ;;
             9)
-                performance_monitor
+                package_manager
                 ;;
             10)
+                performance_monitor
+                ;;
+            11)
                 setup_environment
                 ;;
             0)
