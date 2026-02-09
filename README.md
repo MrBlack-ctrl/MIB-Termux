@@ -7,10 +7,10 @@ Ein zentrales Verwaltungsmenü für Python-Entwicklung in Termux mit automatisch
 ### Methode 1: Automatische Installation von GitHub
 ```bash
 # Installation mit einem Befehl
-curl -fsSL https://raw.githubusercontent.com/dein-benutzername/termux-python-manager/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/MrBlack-ctrl/MIB-Termux/main/install.sh | bash
 
 # Oder mit wget
-wget -qO- https://raw.githubusercontent.com/dein-benutzername/termux-python-manager/main/install.sh | bash
+wget -qO- https://raw.githubusercontent.com/MrBlack-ctrl/MIB-Termux/main/install.sh | bash
 ```
 
 Nach der Installation:
@@ -20,8 +20,8 @@ Nach der Installation:
 
 ### Methode 2: Manuelles Klonen
 ```bash
-git clone https://github.com/dein-benutzername/termux-python-manager.git
-cd termux-python-manager
+git clone https://github.com/MrBlack-ctrl/MIB-Termux.git
+cd MIB-Termux
 chmod +x install.sh
 ./install.sh
 ```
@@ -79,7 +79,7 @@ chmod +x install.sh
 ## �️ Verzeichnisstruktur
 
 ```
-termux-python-manager/
+MIB-Termux/
 ├── start.sh              # Hauptskript
 ├── install.sh            # Installationsskript
 ├── README.md             # Dokumentation
@@ -114,8 +114,8 @@ termux-python-manager/
 
 ### 1. Skript herunterladen
 ```bash
-git clone https://github.com/dein-benutzername/termux-python-manager.git
-cd termux-python-manager
+git clone https://github.com/MrBlack-ctrl/MIB-Termux.git
+cd MIB-Termux
 ```
 
 ### 2. Ausführbar machen
@@ -140,12 +140,12 @@ Das Installationsskript richtet automatisch den Autostart ein. Falls du es manue
 
 ### In .bashrc eintragen
 ```bash
-echo 'cd ~/termux-python-manager && ./start.sh' >> ~/.bashrc
+echo 'cd ~/MIB-Termux && ./start.sh' >> ~/.bashrc
 ```
 
 ### Als Alias
 ```bash
-echo 'alias pydev="cd ~/termux-python-manager && ./start.sh"' >> ~/.bashrc
+echo 'alias pydev="cd ~/MIB-Termux && ./start.sh"' >> ~/.bashrc
 ```
 
 ## 🐙 Git-Integration
@@ -221,21 +221,21 @@ pip install modulname
 # .bashrc bearbeiten
 nano ~/.bashrc
 # Diese Zeilen entfernen:
-# cd ~/termux-python-manager && ./start.sh
+# cd ~/MIB-Termux && ./start.sh
 ```
 
 ## 🔄 Updates
 
 ### Automatisches Update
 ```bash
-cd ~/termux-python-manager
+cd ~/MIB-Termux
 git pull origin main
 ```
 
 ### Neuinstallation
 ```bash
-rm -rf ~/termux-python-manager
-curl -fsSL https://raw.githubusercontent.com/dein-benutzername/termux-python-manager/main/install.sh | bash
+rm -rf ~/MIB-Termux
+curl -fsSL https://raw.githubusercontent.com/MrBlack-ctrl/MIB-Termux/main/install.sh | bash
 ```
 
 ## 🤝 Mitwirken

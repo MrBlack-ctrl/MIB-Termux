@@ -16,8 +16,8 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 # Repository-Informationen
-REPO_URL="https://github.com/dein-benutzername/termux-python-manager.git"
-INSTALL_DIR="$HOME/termux-python-manager"
+REPO_URL="https://github.com/MrBlack-ctrl/MIB-Termux.git"
+INSTALL_DIR="$HOME/MIB-Termux"
 SCRIPT_NAME="start.sh"
 
 clear
@@ -118,8 +118,8 @@ setup_autostart() {
     cat >> "$HOME/.bashrc" << 'EOF'
 
 # Termux Python Development Manager - Autostart
-if [ -t 1 ] && [ "$TERM" != "dumb" ] && [ -f "$HOME/termux-python-manager/start.sh" ]; then
-    cd "$HOME/termux-python-manager"
+if [ -t 1 ] && [ "$TERM" != "dumb" ] && [ -f "$HOME/MIB-Termux/start.sh" ]; then
+    cd "$HOME/MIB-Termux"
     ./start.sh
 fi
 EOF
