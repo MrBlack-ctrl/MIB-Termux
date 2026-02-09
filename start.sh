@@ -45,9 +45,9 @@ declare -A MODULE_MAPPING=(
 # Funktion zur Anzeige von Header-Informationen
 show_header() {
     clear
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}╔════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║${WHITE}${BOLD}           MIB-Termux v1.0${NC}${CYAN}           ║${NC}"
-    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}╠════════════════════════════════════════╣${NC}"
     
     # Akkustand anzeigen
     if command -v termux-battery-status &> /dev/null; then
@@ -71,7 +71,7 @@ show_header() {
     
     # Arbeitsverzeichnis anzeigen
     echo -e "${CYAN}║${BLUE} Arbeitsverzeichnis: $PYTHON_DIR${NC}${CYAN}                    ║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════╝${NC}"
     echo ""
 }
 
@@ -148,7 +148,7 @@ scan_python_imports() {
     # Scan nach 'import' statements
     while IFS= read -r line; do
         # Zeilen ohne Kommentare und Leerzeichen verarbeiten
-        clean_line=$(echo "$line" | sed 's/#.*//' | xargs)
+        clean_line=$(echo "$line" | sed 's/#.*//' | tr -s ' ')
         
         # import module
         if [[ "$clean_line" =~ ^import[[:space:]]+([a-zA-Z_][a-zA-Z0-9_]*) ]]; then
@@ -432,7 +432,7 @@ install_requirements() {
         fi
         
         # Entferne Versionsspezifikationen (>=, ==, etc.)
-        package=$(echo "$line" | cut -d'=' -f1 | cut -d'>' -f1 | cut -d'<' -f1 | cut -d'!' -f1 | xargs)
+        package=$(echo "$line" | cut -d'=' -f1 | cut -d'>' -f1 | cut -d'<' -f1 | cut -d'!' -f1 | tr -d ' ')
         
         if [ ! -z "$package" ]; then
             echo -e "${YELLOW}Installiere $package...${NC}"
