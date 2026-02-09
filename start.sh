@@ -176,20 +176,38 @@ scan_python_imports() {
 # Funktion zur Überprüfung und Installation von Python-Modulen
 install_python_modules() {
     local file=$1
+    local script_name=$(basename "$file" .py)
+    local cache_file="$PYTHON_DIR/.module_cache_${script_name}.txt"
+    
+    # Prüfe ob Cache existiert und aktueller als das Skript ist
+    if [ -f "$cache_file" ] && [ "$cache_file" -nt "$file" ]; then
+        echo -e "${GREEN}✓ Modul-Cache gefunden für $script_name.py - überspringe Scan${NC}"
+        return 0
+    fi
+    
+    echo -e "${BLUE}Scanne Import-Module in $(basename "$file")...${NC}"
+    
     local modules=($(scan_python_imports "$file"))
     
     if [ ${#modules[@]} -eq 0 ]; then
         echo -e "${GREEN}Keine Import-Module gefunden.${NC}"
+        # Erstelle leeren Cache
+        touch "$cache_file"
         return 0
     fi
     
-    echo -e "${BLUE}=== Überprüfung der Python-Module ===${NC}"
+    echo -e "${BLUE}=== Überprüfung der Python-Module (${#modules[@]} gefunden) ===${NC}"
+    echo -e "${YELLOW}Hinweis: Dies wird nur beim ersten Mal durchgeführt${NC}"
+    
+    local installed_count=0
+    local failed_count=0
+    local new_modules=()
     
     for module in "${modules[@]}"; do
         # Standardbibliotheks-Module überspringen
         case "$module" in
             os|sys|time|datetime|math|random|json|csv|re|collections|itertools|functools|operator|pathlib|urllib|http|socket|threading|multiprocessing|subprocess|shutil|tempfile|glob|fnmatch|pickle|sqlite3|unittest|argparse|configparser|logging|email|xml|html|decimal|fractions|statistics|typing|dataclasses|enum|contextlib|io|string|struct|copy|weakref|gc|inspect|dis|importlib|pkgutil|warnings|traceback|types|builtins|__future__)
-                echo -e "${GRAY}Überspringe Standardbibliothek: $module${NC}"
+                echo -e "${GRAY}• Überspringe Standardbibliothek: $module${NC}"
                 continue
                 ;;
         esac
@@ -200,16 +218,55 @@ install_python_modules() {
         # Überprüfen ob Modul installiert ist
         if python -c "import $module" 2>/dev/null; then
             echo -e "${GREEN}✓ $module ist bereits installiert${NC}"
+            ((installed_count++))
         else
             echo -e "${YELLOW}→ Installiere $pip_name (für Import: $module)${NC}"
-            pip install "$pip_name"
-            if [ $? -eq 0 ]; then
+            pip install "$pip_name" --quiet --disable-pip-version-check 2>/dev/null
+            local install_result=$?
+            
+            if [ $install_result -eq 0 ]; then
                 echo -e "${GREEN}✓ $pip_name erfolgreich installiert${NC}"
+                ((installed_count++))
+                new_modules+=("$pip_name")
             else
                 echo -e "${RED}✗ Fehler bei der Installation von $pip_name${NC}"
+                echo -e "${GRAY}  Versuche alternative Installation...${NC}"
+                pip install "$pip_name" --no-deps --force-reinstall 2>/dev/null || {
+                    echo -e "${RED}✗ Auch alternative Installation fehlgeschlagen${NC}"
+                    ((failed_count++))
+                }
             fi
         fi
+        
+        # Kurze Pause um nicht zu viele Anfragen gleichzeitig zu senden
+        sleep 0.1
     done
+    
+    # Erstelle Cache-Datei mit erfolgreich installierten Modulen
+    if [ ${#new_modules[@]} -gt 0 ] || [ $installed_count -gt 0 ]; then
+        printf '%s\n' "${new_modules[@]}" > "$cache_file"
+        echo -e "${CYAN}Cache erstellt für zukünftige Starts${NC}"
+    else
+        touch "$cache_file"
+    fi
+    
+    echo -e "${CYAN}=== Modul-Installation abgeschlossen ===${NC}"
+    echo -e "${GREEN}Erfolgreich: $installed_count Module${NC}"
+    if [ $failed_count -gt 0 ]; then
+        echo -e "${RED}Fehlgeschlagen: $failed_count Module${NC}"
+        echo -e "${YELLOW}Hinweis: Manche Module müssen manuell installiert werden${NC}"
+    fi
+}
+
+# Funktion zum Löschen von Modul-Cache
+clear_module_cache() {
+    local script_name="$1"
+    local cache_file="$PYTHON_DIR/.module_cache_${script_name}.txt"
+    
+    if [ -f "$cache_file" ]; then
+        rm -f "$cache_file"
+        echo -e "${YELLOW}Modul-Cache für $script_name.py gelöscht${NC}"
+    fi
 }
 
 # Funktion zum Anzeigen der Python-Skripte
@@ -275,19 +332,23 @@ execute_script() {
             fi
         fi
         
-        # Module installieren (automatische Erkennung)
-        echo -e "${BLUE}Prüfe und installiere benötigte Module...${NC}"
+        # Module installieren (nur beim ersten Mal dank Cache)
         install_python_modules "$selected_script"
         
-        # Skript ausführen mit Fehlerbehandlung
-        echo -e "${CYAN}=== Skript-Ausgabe ===${NC}"
+        # Skript ausführen mit python skriptname.py
+        echo -e "${CYAN}=== Starte Skript mit python $script_name ===${NC}"
         cd "$PYTHON_DIR"
         
-        if python "$selected_script"; then
+        # Direkte Ausführung wie gewünscht
+        python "$script_name"
+        local exit_code=$?
+        
+        if [ $exit_code -eq 0 ]; then
             echo -e "${GREEN}✓ Skript erfolgreich ausgeführt${NC}"
         else
-            echo -e "${RED}✗ Skript-Ausführung fehlgeschlagen${NC}"
-            echo -e "${YELLOW}Überprüfe den Code und die installierten Module${NC}"
+            echo -e "${RED}✗ Skript mit Exit-Code $exit_code beendet${NC}"
+            echo -e "${YELLOW}Hinweis: Überprüfe den Code und die installierten Module${NC}"
+            echo -e "${CYAN}Tipp: Benutze Option 4 um Modul-Cache zu löschen und neu zu scannen${NC}"
         fi
         
         echo -e "${CYAN}======================${NC}"
@@ -945,20 +1006,80 @@ install_requirements_menu() {
     read -p "Drücke Enter um fortzufahren..."
 }
 
+# Funktion zum Löschen von Modul-Cache
+clear_module_cache_menu() {
+    echo -e "${BLUE}=== Modul-Cache löschen ===${NC}"
+    
+    if [ ! -d "$PYTHON_DIR" ]; then
+        echo -e "${RED}Verzeichnis $PYTHON_DIR existiert nicht.${NC}"
+        return 1
+    fi
+    
+    # Suche nach Cache-Dateien
+    local cache_files=($(find "$PYTHON_DIR" -name ".module_cache_*.txt" -type f 2>/dev/null))
+    
+    if [ ${#cache_files[@]} -eq 0 ]; then
+        echo -e "${GREEN}Keine Modul-Cache Dateien gefunden.${NC}"
+        return 0
+    fi
+    
+    echo -e "${WHITE}Gefundene Cache-Dateien:${NC}"
+    echo -e "${GRAY}Nummer | Cache-Datei${NC}"
+    echo -e "${GRAY}───────┼────────────────────────────────────────${NC}"
+    
+    for i in "${!cache_files[@]}"; do
+        local filename=$(basename "${cache_files[$i]}")
+        printf "${CYAN}%-6d │ ${WHITE}%s${NC}\n" $((i+1)) "$filename"
+    done
+    
+    echo ""
+    echo -e "${YELLOW}Optionen:${NC}"
+    echo -e "${CYAN}1-${#cache_files[@]}.${NC} Spezifischen Cache löschen"
+    echo -e "${CYAN}0.${NC} Alle Cache-Dateien löschen"
+    echo -e "${CYAN}99.${NC} Zurück zum Hauptmenü"
+    echo ""
+    echo -e "${YELLOW}Wähle eine Option:${NC}"
+    read -p "> " cache_choice
+    
+    if [ "$cache_choice" -eq 0 ] 2>/dev/null; then
+        echo -e "${YELLOW}Lösche alle Cache-Dateien...${NC}"
+        for cache_file in "${cache_files[@]}"; do
+            rm -f "$cache_file"
+            echo -e "${GREEN}✓ $(basename "$cache_file") gelöscht${NC}"
+        done
+        echo -e "${GREEN}Alle Modul-Cache Dateien wurden gelöscht.${NC}"
+    elif [ "$cache_choice" -eq 99 ] 2>/dev/null; then
+        echo -e "${GRAY}Abgebrochen.${NC}"
+        return 0
+    elif [ "$cache_choice" -ge 1 ] && [ "$cache_choice" -le ${#cache_files[@]} ]; then
+        local index=$((cache_choice-1))
+        local selected_cache="${cache_files[$index]}"
+        rm -f "$selected_cache"
+        echo -e "${GREEN}✓ $(basename "$selected_cache") gelöscht${NC}"
+        echo -e "${YELLOW}Beim nächsten Ausführen wird das Skript neu gescannt.${NC}"
+    else
+        echo -e "${RED}Ungültige Auswahl.${NC}"
+    fi
+    
+    echo ""
+    read -p "Drücke Enter um fortzufahren..."
+}
+
 # Hauptmenü anzeigen
 show_main_menu() {
     echo -e "${BOLD}${WHITE}=== Hauptmenü ===${NC}"
     echo -e "${CYAN}1.${NC} Python-Skript ausführen"
     echo -e "${CYAN}2.${NC} Python-Skript bearbeiten"
     echo -e "${CYAN}3.${NC} Neues Python-Skript erstellen"
-    echo -e "${CYAN}4.${NC} __pycache__ löschen"
-    echo -e "${CYAN}5.${NC} Shell öffnen"
-    echo -e "${CYAN}6.${NC} Git Manager"
-    echo -e "${CYAN}7.${NC} Requirements.txt Generator"
-    echo -e "${CYAN}8.${NC} Requirements.txt installieren"
-    echo -e "${CYAN}9.${NC} Package Manager"
-    echo -e "${CYAN}10.${NC} Performance Monitor"
-    echo -e "${CYAN}11.${NC} Umgebung neu einrichten"
+    echo -e "${CYAN}4.${NC} Modul-Cache löschen"
+    echo -e "${CYAN}5.${NC} __pycache__ löschen"
+    echo -e "${CYAN}6.${NC} Shell öffnen"
+    echo -e "${CYAN}7.${NC} Git Manager"
+    echo -e "${CYAN}8.${NC} Requirements.txt Generator"
+    echo -e "${CYAN}9.${NC} Requirements.txt installieren"
+    echo -e "${CYAN}10.${NC} Package Manager"
+    echo -e "${CYAN}11.${NC} Performance Monitor"
+    echo -e "${CYAN}12.${NC} Umgebung neu einrichten"
     echo -e "${CYAN}0.${NC} Beenden"
     echo ""
     echo -e "${YELLOW}Wähle eine Option:${NC}"
@@ -991,27 +1112,30 @@ main() {
                 create_script
                 ;;
             4)
-                clean_pycache
+                clear_module_cache_menu
                 ;;
             5)
-                open_shell
+                clean_pycache
                 ;;
             6)
-                git_manager
+                open_shell
                 ;;
             7)
-                generate_requirements
+                git_manager
                 ;;
             8)
-                install_requirements_menu
+                generate_requirements
                 ;;
             9)
-                package_manager
+                install_requirements_menu
                 ;;
             10)
-                performance_monitor
+                package_manager
                 ;;
             11)
+                performance_monitor
+                ;;
+            12)
                 setup_environment
                 ;;
             0)
