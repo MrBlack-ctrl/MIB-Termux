@@ -112,27 +112,49 @@ setup_environment() {
     # termux-setup-storage durchführen
     if [ ! -d "/sdcard" ]; then
         echo -e "${YELLOW}Führe termux-setup-storage durch...${NC}"
+        echo -e "${CYAN}Hinweis: Bitte erlaube den Speicherzugriff in der Popup-Meldung${NC}"
         termux-setup-storage
-        if [ $? -eq 0 ]; then
+        
+        # Warte kurz und prüfe erneut
+        sleep 2
+        if [ -d "/sdcard" ]; then
             echo -e "${GREEN}Speicherzugriff erfolgreich eingerichtet.${NC}"
         else
-            echo -e "${RED}Fehler beim Einrichten des Speicherzugriffs.${NC}"
+            echo -e "${RED}Fehler: /sdcard ist nicht verfügbar.${NC}"
+            echo -e "${YELLOW}Bitte führe 'termux-setup-storage' manuell aus und erlaube den Zugriff.${NC}"
+            echo -e "${YELLOW}Alternativ: Verwende ein anderes Verzeichnis (z.B. ~/py)${NC}"
+            read -p "Alternatives Verzeichnis verwenden? (y/n): " use_alt
+            if [[ "$use_alt" =~ ^[Yy]$ ]]; then
+                PYTHON_DIR="$HOME/py"
+                echo -e "${CYAN}Verwende alternatives Verzeichnis: $PYTHON_DIR${NC}"
+            fi
         fi
+    else
+        echo -e "${GREEN}Speicherzugriff bereits eingerichtet.${NC}"
     fi
     
     # Python-Verzeichnis erstellen
     if [ ! -d "$PYTHON_DIR" ]; then
         echo -e "${YELLOW}Erstelle Python-Verzeichnis: $PYTHON_DIR${NC}"
         mkdir -p "$PYTHON_DIR"
-        echo -e "${GREEN}Python-Verzeichnis erstellt.${NC}"
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}Python-Verzeichnis erstellt.${NC}"
+        else
+            echo -e "${RED}Fehler beim Erstellen des Verzeichnisses.${NC}"
+            return 1
+        fi
+    else
+        echo -e "${GREEN}Python-Verzeichnis existiert bereits.${NC}"
     fi
     
     # Auto-Update durchführen
     echo -e "${YELLOW}Führe Auto-Update durch...${NC}"
     pkg update -y
     if command -v pip &> /dev/null; then
-        pip install --upgrade pip
+        pip install --upgrade pip 2>&1 | grep -v "WARNING"
         echo -e "${GREEN}pip aktualisiert.${NC}"
+    else
+        echo -e "${RED}pip nicht gefunden. Installiere Python erneut.${NC}"
     fi
     
     echo -e "${GREEN}Umgebungseinrichtung abgeschlossen.${NC}"
@@ -140,42 +162,32 @@ setup_environment() {
     read -p "Drücke Enter um fortzufahren..."
 }
 
-# Funktion zum Scannen von Python-Importen
+# Funktion zum Scannen von Python-Importen (optimiert)
 scan_python_imports() {
     local file=$1
-    local imports=()
     
-    # Scan nach 'import' statements
-    while IFS= read -r line; do
-        # Zeilen ohne Kommentare und Leerzeichen verarbeiten
-        clean_line=$(echo "$line" | sed 's/#.*//' | tr -s ' ')
-        
-        # import module
-        if [[ "$clean_line" =~ ^import[[:space:]]+([a-zA-Z_][a-zA-Z0-9_]*) ]]; then
-            module="${BASH_REMATCH[1]}"
-            imports+=("$module")
-        # from module import ...
-        elif [[ "$clean_line" =~ ^from[[:space:]]+([a-zA-Z_][a-zA-Z0-9_]*)[[:space:]]+import ]]; then
-            module="${BASH_REMATCH[1]}"
-            imports+=("$module")
-        # import module as alias
-        elif [[ "$clean_line" =~ ^import[[:space:]]+([a-zA-Z_][a-zA-Z0-9_]*)[[:space:]]+as ]]; then
-            module="${BASH_REMATCH[1]}"
-            imports+=("$module")
-        # from module import *
-        elif [[ "$clean_line" =~ ^from[[:space:]]+([a-zA-Z_][a-zA-Z0-9_]*)[[:space:]]+import[[:space:]]+\* ]]; then
-            module="${BASH_REMATCH[1]}"
-            imports+=("$module")
-        fi
-    done < "$file"
+    # Validierung
+    if [ ! -f "$file" ]; then
+        return 1
+    fi
     
-    # Duplikate entfernen
-    printf '%s\n' "${imports[@]}" | sort -u
+    # Verwende grep für schnelleres Scannen
+    grep -E "^[[:space:]]*(import|from)[[:space:]]+" "$file" 2>/dev/null | \
+        sed 's/#.*//' | \
+        sed -n 's/^[[:space:]]*import[[:space:]]\+\([a-zA-Z_][a-zA-Z0-9_]*\).*/\1/p; s/^[[:space:]]*from[[:space:]]\+\([a-zA-Z_][a-zA-Z0-9_]*\)[[:space:]]\+import.*/\1/p' | \
+        sort -u
 }
 
 # Funktion zur Überprüfung und Installation von Python-Modulen
 install_python_modules() {
     local file=$1
+    
+    # Validierung
+    if [ ! -f "$file" ]; then
+        echo -e "${RED}Fehler: Datei nicht gefunden: $file${NC}"
+        return 1
+    fi
+    
     local script_name=$(basename "$file" .py)
     local cache_file="$PYTHON_DIR/.module_cache_${script_name}.txt"
     
@@ -197,7 +209,6 @@ install_python_modules() {
     fi
     
     echo -e "${BLUE}=== Überprüfung der Python-Module (${#modules[@]} gefunden) ===${NC}"
-    echo -e "${YELLOW}Hinweis: Dies wird nur beim ersten Mal durchgeführt${NC}"
     
     local installed_count=0
     local failed_count=0
@@ -206,7 +217,7 @@ install_python_modules() {
     for module in "${modules[@]}"; do
         # Standardbibliotheks-Module überspringen
         case "$module" in
-            os|sys|time|datetime|math|random|json|csv|re|collections|itertools|functools|operator|pathlib|urllib|http|socket|threading|multiprocessing|subprocess|shutil|tempfile|glob|fnmatch|pickle|sqlite3|unittest|argparse|configparser|logging|email|xml|html|decimal|fractions|statistics|typing|dataclasses|enum|contextlib|io|string|struct|copy|weakref|gc|inspect|dis|importlib|pkgutil|warnings|traceback|types|builtins|__future__)
+            os|sys|time|datetime|math|random|json|csv|re|collections|itertools|functools|operator|pathlib|urllib|http|socket|threading|multiprocessing|subprocess|shutil|tempfile|glob|fnmatch|pickle|sqlite3|unittest|argparse|configparser|logging|email|xml|html|decimal|fractions|statistics|typing|dataclasses|enum|contextlib|io|string|struct|copy|weakref|gc|inspect|dis|importlib|pkgutil|warnings|traceback|types|builtins|__future__|abc|asyncio|base64|binascii|bisect|calendar|cmath|codecs|concurrent|crypt|ctypes|curses|dbm|difflib|distutils|errno|faulthandler|fcntl|filecmp|fileinput|formatter|getopt|getpass|gettext|grp|gzip|hashlib|heapq|hmac|imaplib|imp|ipaddress|keyword|linecache|locale|lzma|mailbox|mailcap|marshal|mimetypes|mmap|modulefinder|netrc|nis|nntplib|numbers|optparse|parser|pdb|pipes|platform|plistlib|poplib|posix|posixpath|pprint|profile|pstats|pty|pwd|py_compile|pyclbr|pydoc|queue|quopri|readline|reprlib|resource|rlcompleter|runpy|sched|secrets|select|selectors|shelve|signal|site|smtpd|smtplib|sndhdr|spwd|ssl|stat|stringprep|sunau|symbol|symtable|sysconfig|syslog|tabnanny|tarfile|telnetlib|termios|test|textwrap|this|token|tokenize|trace|tty|turtle|turtledemo|unicodedata|uu|uuid|venv|wave|webbrowser|wsgiref|xdrlib|zipapp|zipfile|zipimport|zlib)
                 echo -e "${GRAY}• Überspringe Standardbibliothek: $module${NC}"
                 continue
                 ;;
@@ -221,20 +232,15 @@ install_python_modules() {
             ((installed_count++))
         else
             echo -e "${YELLOW}→ Installiere $pip_name (für Import: $module)${NC}"
-            pip install "$pip_name" --quiet --disable-pip-version-check 2>/dev/null
-            local install_result=$?
             
-            if [ $install_result -eq 0 ]; then
+            # Versuche Installation mit Fehlerbehandlung
+            if pip install "$pip_name" --quiet --disable-pip-version-check 2>&1 | grep -q "Successfully installed"; then
                 echo -e "${GREEN}✓ $pip_name erfolgreich installiert${NC}"
                 ((installed_count++))
                 new_modules+=("$pip_name")
             else
                 echo -e "${RED}✗ Fehler bei der Installation von $pip_name${NC}"
-                echo -e "${GRAY}  Versuche alternative Installation...${NC}"
-                pip install "$pip_name" --no-deps --force-reinstall 2>/dev/null || {
-                    echo -e "${RED}✗ Auch alternative Installation fehlgeschlagen${NC}"
-                    ((failed_count++))
-                }
+                ((failed_count++))
             fi
         fi
         
@@ -245,7 +251,7 @@ install_python_modules() {
     # Erstelle Cache-Datei mit erfolgreich installierten Modulen
     if [ ${#new_modules[@]} -gt 0 ] || [ $installed_count -gt 0 ]; then
         printf '%s\n' "${new_modules[@]}" > "$cache_file"
-        echo -e "${CYAN}Cache erstellt für zukünftige Starts${NC}"
+        echo -e "${CYAN}✓ Cache erstellt für zukünftige Starts${NC}"
     else
         touch "$cache_file"
     fi
@@ -254,8 +260,10 @@ install_python_modules() {
     echo -e "${GREEN}Erfolgreich: $installed_count Module${NC}"
     if [ $failed_count -gt 0 ]; then
         echo -e "${RED}Fehlgeschlagen: $failed_count Module${NC}"
-        echo -e "${YELLOW}Hinweis: Manche Module müssen manuell installiert werden${NC}"
+        echo -e "${YELLOW}Hinweis: Manche Module benötigen zusätzliche Systemabhängigkeiten${NC}"
     fi
+    
+    return 0
 }
 
 # Funktion zum Löschen von Modul-Cache
@@ -313,6 +321,13 @@ execute_script() {
         return 0
     fi
     
+    # Eingabe-Validierung
+    if ! [[ "$choice" =~ ^[0-9]+$ ]]; then
+        echo -e "${RED}Ungültige Eingabe. Bitte eine Zahl eingeben.${NC}"
+        read -p "Drücke Enter um fortzufahren..."
+        return 1
+    fi
+    
     local scripts=($(find "$PYTHON_DIR" -name "*.py" -type f | sort))
     local index=$((choice-1))
     
@@ -332,11 +347,10 @@ execute_script() {
             fi
         fi
         
-        # Skript ausführen mit python skriptname.py (ohne automatische Modul-Installation)
-        echo -e "${CYAN}=== Starte Skript mit python $script_name ===${NC}"
+        # Skript ausführen
+        echo -e "${CYAN}=== Starte Skript: $script_name ===${NC}"
         cd "$PYTHON_DIR"
         
-        # Direkte Ausführung wie gewünscht
         python "$script_name"
         local exit_code=$?
         
@@ -345,7 +359,7 @@ execute_script() {
         else
             echo -e "${RED}✗ Skript mit Exit-Code $exit_code beendet${NC}"
             echo -e "${YELLOW}Hinweis: Möglicherweise fehlende Module${NC}"
-            echo -e "${CYAN}Tipp: Benutze Option 8 für Requirements.txt oder 9 für Package Manager${NC}"
+            echo -e "${CYAN}Tipp: Nutze Option 9 (Requirements.txt Generator) oder Option 10 (Requirements installieren)${NC}"
         fi
         
         echo -e "${CYAN}======================${NC}"
@@ -372,12 +386,25 @@ edit_script() {
         return 0
     fi
     
+    # Eingabe-Validierung
+    if ! [[ "$choice" =~ ^[0-9]+$ ]]; then
+        echo -e "${RED}Ungültige Eingabe. Bitte eine Zahl eingeben.${NC}"
+        read -p "Drücke Enter um fortzufahren..."
+        return 1
+    fi
+    
     local scripts=($(find "$PYTHON_DIR" -name "*.py" -type f | sort))
     local index=$((choice-1))
     
     if [ "$index" -ge 0 ] && [ "$index" -lt "${#scripts[@]}" ]; then
         local selected_script="${scripts[$index]}"
+        local script_name=$(basename "$selected_script" .py)
         echo -e "${BLUE}Öffne zum Bearbeiten: $(basename "$selected_script")${NC}"
+        
+        # Backup erstellen
+        local backup_file="${selected_script}.backup.$(date +%Y%m%d_%H%M%S)"
+        cp "$selected_script" "$backup_file"
+        echo -e "${GREEN}✓ Backup erstellt: $(basename "$backup_file")${NC}"
         
         # nano installieren falls nicht vorhanden
         if ! command -v nano &> /dev/null; then
@@ -386,9 +413,16 @@ edit_script() {
         fi
         
         nano "$selected_script"
+        
+        # Nach dem Bearbeiten: Cache löschen damit Module neu gescannt werden
+        clear_module_cache "$script_name"
+        echo -e "${CYAN}Modul-Cache wurde gelöscht. Module werden beim nächsten Start neu gescannt.${NC}"
     else
         echo -e "${RED}Ungültige Auswahl.${NC}"
     fi
+    
+    echo ""
+    read -p "Drücke Enter um fortzufahren..."
 }
 
 # Funktion zum Erstellen eines neuen Python-Skripts
@@ -396,8 +430,17 @@ create_script() {
     echo -e "${YELLOW}Gib den Namen für das neue Python-Skript ein (ohne .py Erweiterung):${NC}"
     read -p "> " script_name
     
+    # Validierung
     if [ -z "$script_name" ]; then
         echo -e "${RED}Leerer Name ist nicht erlaubt.${NC}"
+        return 1
+    fi
+    
+    # Entferne ungültige Zeichen
+    script_name=$(echo "$script_name" | tr -cd '[:alnum:]_-')
+    
+    if [ -z "$script_name" ]; then
+        echo -e "${RED}Ungültiger Name. Verwende nur Buchstaben, Zahlen, _ und -${NC}"
         return 1
     fi
     
@@ -405,6 +448,11 @@ create_script() {
     
     if [ -f "$script_path" ]; then
         echo -e "${RED}Skript $script_name.py existiert bereits.${NC}"
+        echo -e "${YELLOW}Möchtest du es trotzdem öffnen? (y/n)${NC}"
+        read -p "> " open_existing
+        if [[ "$open_existing" =~ ^[Yy]$ ]]; then
+            nano "$script_path"
+        fi
         return 1
     fi
     
@@ -415,7 +463,7 @@ create_script() {
     fi
     
     # Vorlage erstellen
-    cat > "$script_path" << 'EOF'
+    cat > "$script_path" << EOF
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
@@ -466,6 +514,25 @@ clean_pycache() {
             echo -e "${YELLOW}Lösche: $file${NC}"
             rm -f "$file"
         done
+    fi
+    
+    # Alte Backups bereinigen (älter als 7 Tage)
+    echo -e "${CYAN}Prüfe auf alte Backup-Dateien...${NC}"
+    local old_backups=$(find "$PYTHON_DIR" -name "*.backup.*" -type f -mtime +7 2>/dev/null)
+    if [ ! -z "$old_backups" ]; then
+        local backup_count=$(echo "$old_backups" | wc -l)
+        echo -e "${YELLOW}Gefunden: $backup_count alte Backup-Dateien (älter als 7 Tage)${NC}"
+        echo -e "${YELLOW}Möchtest du diese löschen? (y/n)${NC}"
+        read -p "> " delete_backups
+        if [[ "$delete_backups" =~ ^[Yy]$ ]]; then
+            echo "$old_backups" | while read -r file; do
+                echo -e "${YELLOW}Lösche: $(basename "$file")${NC}"
+                rm -f "$file"
+            done
+            echo -e "${GREEN}Alte Backups wurden gelöscht.${NC}"
+        fi
+    else
+        echo -e "${GREEN}Keine alten Backup-Dateien gefunden.${NC}"
     fi
     
     echo ""
@@ -641,6 +708,13 @@ generate_requirements() {
     echo -e "${CYAN}0.${NC} Zurück zum Hauptmenü"
     read -p "> " req_choice
     
+    # Eingabe-Validierung
+    if ! [[ "$req_choice" =~ ^[0-9]+$ ]]; then
+        echo -e "${RED}Ungültige Eingabe. Bitte eine Zahl eingeben.${NC}"
+        read -p "Drücke Enter um fortzufahren..."
+        return 1
+    fi
+    
     case $req_choice in
         1)
             echo -e "${YELLOW}Scanne alle Python-Dateien...${NC}"
@@ -792,21 +866,29 @@ package_manager() {
     
     while true; do
         echo -e "${BOLD}${WHITE}Package Manager Optionen:${NC}"
-        echo -e "${CYAN}1.${NC} Installierte Pakete auflisten"
-        echo -e "${CYAN}2.${NC} Paket suchen"
-        echo -e "${CYAN}3.${NC} Paket installieren"
-        echo -e "${CYAN}4.${NC} Paket deinstallieren"
-        echo -e "${CYAN}5.${NC} Paket-Informationen anzeigen"
-        echo -e "${CYAN}6.${NC} Veraltete Pakete auflisten"
-        echo -e "${CYAN}7.${NC} Alle Pakete aktualisieren"
+        echo -e "${CYAN}1.${NC} Installierte Python-Pakete auflisten"
+        echo -e "${CYAN}2.${NC} Python-Paket installieren (pip)"
+        echo -e "${CYAN}3.${NC} Python-Paket deinstallieren (pip)"
+        echo -e "${CYAN}4.${NC} Python-Paket-Informationen anzeigen"
+        echo -e "${CYAN}5.${NC} Veraltete Python-Pakete auflisten"
+        echo -e "${CYAN}6.${NC} Alle Python-Pakete aktualisieren"
+        echo -e "${CYAN}7.${NC} Termux-Paket installieren (pkg)"
+        echo -e "${CYAN}8.${NC} Python-Modul direkt installieren (Modulname)"
         echo -e "${CYAN}0.${NC} Zurück zum Hauptmenü"
         echo ""
         echo -e "${YELLOW}Wähle eine Option:${NC}"
         read -p "> " pkg_choice
         
+        # Eingabe-Validierung
+        if ! [[ "$pkg_choice" =~ ^[0-9]+$ ]]; then
+            echo -e "${RED}Ungültige Eingabe. Bitte eine Zahl eingeben.${NC}"
+            read -p "Drücke Enter um fortzufahren..."
+            continue
+        fi
+        
         case $pkg_choice in
             1)
-                echo -e "${BLUE}=== Installierte Pakete ===${NC}"
+                echo -e "${BLUE}=== Installierte Python-Pakete ===${NC}"
                 if command -v pip &> /dev/null; then
                     pip list
                 else
@@ -814,47 +896,54 @@ package_manager() {
                 fi
                 ;;
             2)
-                echo -e "${YELLOW}Gib den Suchbegriff ein:${NC}"
-                read -p "> " search_term
-                if [ ! -z "$search_term" ]; then
-                    echo -e "${BLUE}=== Suche nach: $search_term ===${NC}"
-                    pip search "$search_term" 2>/dev/null || echo -e "${YELLOW}Suche nicht verfügbar (pip search wurde deprecated)${NC}"
+                echo -e "${YELLOW}Gib den Python-Paketnamen ein (z.B. requests, numpy):${NC}"
+                read -p "> " install_pkg
+                if [ -z "$install_pkg" ]; then
+                    echo -e "${RED}Kein Paketname eingegeben.${NC}"
+                else
+                    echo -e "${BLUE}Installiere $install_pkg...${NC}"
+                    pip install "$install_pkg"
+                    if [ $? -eq 0 ]; then
+                        echo -e "${GREEN}✓ $install_pkg erfolgreich installiert${NC}"
+                    else
+                        echo -e "${RED}✗ Fehler bei der Installation von $install_pkg${NC}"
+                    fi
                 fi
                 ;;
             3)
-                echo -e "${YELLOW}Gib den Paketnamen ein:${NC}"
-                read -p "> " install_pkg
-                if [ ! -z "$install_pkg" ]; then
-                    echo -e "${BLUE}Installiere $install_pkg...${NC}"
-                    pip install "$install_pkg"
+                echo -e "${YELLOW}Gib den Python-Paketnamen zum Deinstallieren ein:${NC}"
+                read -p "> " uninstall_pkg
+                if [ -z "$uninstall_pkg" ]; then
+                    echo -e "${RED}Kein Paketname eingegeben.${NC}"
+                else
+                    echo -e "${BLUE}Deinstalliere $uninstall_pkg...${NC}"
+                    pip uninstall -y "$uninstall_pkg"
+                    if [ $? -eq 0 ]; then
+                        echo -e "${GREEN}✓ $uninstall_pkg erfolgreich deinstalliert${NC}"
+                    else
+                        echo -e "${RED}✗ Fehler bei der Deinstallation von $uninstall_pkg${NC}"
+                    fi
                 fi
                 ;;
             4)
-                echo -e "${YELLOW}Gib den Paketnamen zum Deinstallieren ein:${NC}"
-                read -p "> " uninstall_pkg
-                if [ ! -z "$uninstall_pkg" ]; then
-                    echo -e "${BLUE}Deinstalliere $uninstall_pkg...${NC}"
-                    pip uninstall "$uninstall_pkg"
-                fi
-                ;;
-            5)
-                echo -e "${YELLOW}Gib den Paketnamen für Informationen ein:${NC}"
+                echo -e "${YELLOW}Gib den Python-Paketnamen für Informationen ein:${NC}"
                 read -p "> " info_pkg
-                if [ ! -z "$info_pkg" ]; then
+                if [ -z "$info_pkg" ]; then
+                    echo -e "${RED}Kein Paketname eingegeben.${NC}"
+                else
                     echo -e "${BLUE}=== Informationen zu $info_pkg ===${NC}"
                     pip show "$info_pkg"
                 fi
                 ;;
-            6)
-                echo -e "${BLUE}=== Veraltete Pakete ===${NC}"
+            5)
+                echo -e "${BLUE}=== Veraltete Python-Pakete ===${NC}"
                 pip list --outdated
                 ;;
-            7)
-                echo -e "${YELLOW}Alle Pakete aktualisieren? Dies kann dauern (y/n):${NC}"
+            6)
+                echo -e "${YELLOW}Alle Python-Pakete aktualisieren? Dies kann dauern (y/n):${NC}"
                 read -p "> " update_all
                 if [[ "$update_all" =~ ^[Yy]$ ]]; then
                     echo -e "${BLUE}Aktualisiere alle Pakete...${NC}"
-                    # Alternative Methode ohne xargs Probleme
                     local outdated_packages=$(pip list --outdated --format=freeze | grep -v '^-e' | cut -d = -f 1)
                     if [ ! -z "$outdated_packages" ]; then
                         echo "$outdated_packages" | while read -r package; do
@@ -863,8 +952,52 @@ package_manager() {
                                 pip install -U "$package"
                             fi
                         done
+                        echo -e "${GREEN}✓ Alle Pakete aktualisiert${NC}"
                     else
                         echo -e "${GREEN}Alle Pakete sind aktuell.${NC}"
+                    fi
+                fi
+                ;;
+            7)
+                echo -e "${YELLOW}Gib den Termux-Paketnamen ein (z.B. git, nano, clang):${NC}"
+                read -p "> " pkg_name
+                if [ -z "$pkg_name" ]; then
+                    echo -e "${RED}Kein Paketname eingegeben.${NC}"
+                else
+                    echo -e "${BLUE}Installiere Termux-Paket: $pkg_name...${NC}"
+                    pkg install -y "$pkg_name"
+                    if [ $? -eq 0 ]; then
+                        echo -e "${GREEN}✓ $pkg_name erfolgreich installiert${NC}"
+                    else
+                        echo -e "${RED}✗ Fehler bei der Installation von $pkg_name${NC}"
+                    fi
+                fi
+                ;;
+            8)
+                echo -e "${YELLOW}Gib den Python-Modulnamen ein (z.B. cv2, PIL, sklearn):${NC}"
+                read -p "> " module_name
+                if [ -z "$module_name" ]; then
+                    echo -e "${RED}Kein Modulname eingegeben.${NC}"
+                else
+                    # Prüfe ob Modul bereits installiert ist
+                    if python -c "import $module_name" 2>/dev/null; then
+                        echo -e "${GREEN}✓ Modul $module_name ist bereits installiert${NC}"
+                    else
+                        # Verwende Mapping falls vorhanden
+                        local pip_name="${MODULE_MAPPING[$module_name]:-$module_name}"
+                        echo -e "${BLUE}Installiere $pip_name (für Modul: $module_name)...${NC}"
+                        pip install "$pip_name"
+                        if [ $? -eq 0 ]; then
+                            echo -e "${GREEN}✓ $pip_name erfolgreich installiert${NC}"
+                            # Verifiziere Installation
+                            if python -c "import $module_name" 2>/dev/null; then
+                                echo -e "${GREEN}✓ Modul $module_name kann jetzt importiert werden${NC}"
+                            else
+                                echo -e "${YELLOW}⚠ Paket installiert, aber Modul $module_name kann nicht importiert werden${NC}"
+                            fi
+                        else
+                            echo -e "${RED}✗ Fehler bei der Installation von $pip_name${NC}"
+                        fi
                     fi
                 fi
                 ;;
@@ -900,15 +1033,19 @@ performance_monitor() {
         return 0
     fi
     
+    # Eingabe-Validierung
+    if ! [[ "$perf_choice" =~ ^[0-9]+$ ]]; then
+        echo -e "${RED}Ungültige Eingabe. Bitte eine Zahl eingeben.${NC}"
+        read -p "Drücke Enter um fortzufahren..."
+        return 1
+    fi
+    
     local scripts=($(find "$PYTHON_DIR" -name "*.py" -type f | sort))
     local index=$((perf_choice-1))
     
     if [ "$index" -ge 0 ] && [ "$index" -lt "${#scripts[@]}" ]; then
         local selected_script="${scripts[$index]}"
         echo -e "${BLUE}Performance-Analyse für: $(basename "$selected_script")${NC}"
-        
-        # Module installieren
-        install_python_modules "$selected_script"
         
         echo -e "${CYAN}=== Performance-Messung ===${NC}"
         echo -e "${YELLOW}Starte Zeitmessung...${NC}"
@@ -1017,6 +1154,13 @@ install_requirements_menu() {
         return 0
     fi
     
+    # Eingabe-Validierung
+    if ! [[ "$req_choice" =~ ^[0-9]+$ ]]; then
+        echo -e "${RED}Ungültige Eingabe. Bitte eine Zahl eingeben.${NC}"
+        read -p "Drücke Enter um fortzufahren..."
+        return 1
+    fi
+    
     local index=$((req_choice-1))
     
     if [ "$index" -ge 0 ] && [ "$index" -lt "${#req_files[@]}" ]; then
@@ -1079,6 +1223,13 @@ clear_module_cache_menu() {
     echo -e "${YELLOW}Wähle eine Option:${NC}"
     read -p "> " cache_choice
     
+    # Eingabe-Validierung
+    if ! [[ "$cache_choice" =~ ^[0-9]+$ ]]; then
+        echo -e "${RED}Ungültige Eingabe. Bitte eine Zahl eingeben.${NC}"
+        read -p "Drücke Enter um fortzufahren..."
+        return 1
+    fi
+    
     if [ "$cache_choice" -eq 0 ] 2>/dev/null; then
         echo -e "${YELLOW}Lösche alle Cache-Dateien...${NC}"
         for cache_file in "${cache_files[@]}"; do
@@ -1118,6 +1269,13 @@ install_modules_for_script() {
     if [ "$script_choice" -eq 0 ] 2>/dev/null; then
         echo -e "${GRAY}Abgebrochen.${NC}"
         return 0
+    fi
+    
+    # Eingabe-Validierung
+    if ! [[ "$script_choice" =~ ^[0-9]+$ ]]; then
+        echo -e "${RED}Ungültige Eingabe. Bitte eine Zahl eingeben.${NC}"
+        read -p "Drücke Enter um fortzufahren..."
+        return 1
     fi
     
     local scripts=($(find "$PYTHON_DIR" -name "*.py" -type f | sort))
@@ -1177,6 +1335,13 @@ main() {
         show_header
         show_main_menu
         read -p "> " choice
+        
+        # Eingabe-Validierung
+        if ! [[ "$choice" =~ ^[0-9]+$ ]]; then
+            echo -e "${RED}Ungültige Eingabe. Bitte eine Zahl eingeben.${NC}"
+            sleep 2
+            continue
+        fi
         
         case $choice in
             1)
