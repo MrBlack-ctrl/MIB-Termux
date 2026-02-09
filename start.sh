@@ -705,6 +705,7 @@ generate_requirements() {
     echo -e "${CYAN}1.${NC} Requirements aus allen Python-Dateien generieren"
     echo -e "${CYAN}2.${NC} Requirements aus spezifischer Datei generieren"
     echo -e "${CYAN}3.${NC} Installierte Pakete auflisten (pip freeze)"
+    echo -e "${CYAN}4.${NC} Requirements.txt Dateien löschen"
     echo -e "${CYAN}0.${NC} Zurück zum Hauptmenü"
     read -p "> " req_choice
     
@@ -846,6 +847,73 @@ generate_requirements() {
                 fi
             else
                 echo -e "${RED}pip ist nicht installiert.${NC}"
+            fi
+            ;;
+        4)
+            echo -e "${BLUE}=== Requirements.txt Dateien löschen ===${NC}"
+            
+            # Suche nach requirements.txt Dateien
+            local req_files=($(find "$PYTHON_DIR" -name "requirements*.txt" -type f 2>/dev/null))
+            
+            if [ ${#req_files[@]} -eq 0 ]; then
+                echo -e "${YELLOW}Keine requirements.txt Dateien gefunden.${NC}"
+                return 0
+            fi
+            
+            echo -e "${WHITE}Gefundene requirements.txt Dateien:${NC}"
+            echo -e "${GRAY}Nummer | Dateiname${NC}"
+            echo -e "${GRAY}───────┼────────────────────────────────────────${NC}"
+            
+            for i in "${!req_files[@]}"; do
+                local filename=$(basename "${req_files[$i]}")
+                printf "${CYAN}%-6d │ ${WHITE}%s${NC}\n" $((i+1)) "$filename"
+            done
+            
+            echo ""
+            echo -e "${YELLOW}Optionen:${NC}"
+            echo -e "${CYAN}1-${#req_files[@]}.${NC} Spezifische Datei löschen"
+            echo -e "${CYAN}0.${NC} Alle requirements.txt Dateien löschen"
+            echo -e "${CYAN}99.${NC} Abbrechen"
+            echo ""
+            echo -e "${YELLOW}Wähle eine Option:${NC}"
+            read -p "> " delete_choice
+            
+            # Eingabe-Validierung
+            if ! [[ "$delete_choice" =~ ^[0-9]+$ ]]; then
+                echo -e "${RED}Ungültige Eingabe. Bitte eine Zahl eingeben.${NC}"
+                return 1
+            fi
+            
+            if [ "$delete_choice" -eq 0 ]; then
+                echo -e "${RED}WARNUNG: Alle requirements.txt Dateien werden gelöscht!${NC}"
+                echo -e "${YELLOW}Bist du sicher? (y/n)${NC}"
+                read -p "> " confirm_all
+                if [[ "$confirm_all" =~ ^[Yy]$ ]]; then
+                    for req_file in "${req_files[@]}"; do
+                        rm -f "$req_file"
+                        echo -e "${GREEN}✓ $(basename "$req_file") gelöscht${NC}"
+                    done
+                    echo -e "${GREEN}Alle requirements.txt Dateien wurden gelöscht.${NC}"
+                else
+                    echo -e "${GRAY}Abgebrochen.${NC}"
+                fi
+            elif [ "$delete_choice" -eq 99 ]; then
+                echo -e "${GRAY}Abgebrochen.${NC}"
+                return 0
+            elif [ "$delete_choice" -ge 1 ] && [ "$delete_choice" -le ${#req_files[@]} ]; then
+                local index=$((delete_choice-1))
+                local selected_req="${req_files[$index]}"
+                echo -e "${YELLOW}Lösche: $(basename "$selected_req")${NC}"
+                echo -e "${YELLOW}Bist du sicher? (y/n)${NC}"
+                read -p "> " confirm_single
+                if [[ "$confirm_single" =~ ^[Yy]$ ]]; then
+                    rm -f "$selected_req"
+                    echo -e "${GREEN}✓ $(basename "$selected_req") gelöscht${NC}"
+                else
+                    echo -e "${GRAY}Abgebrochen.${NC}"
+                fi
+            else
+                echo -e "${RED}Ungültige Auswahl.${NC}"
             fi
             ;;
         0)
