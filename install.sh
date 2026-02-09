@@ -21,9 +21,9 @@ INSTALL_DIR="$HOME/MIB-Termux"
 SCRIPT_NAME="start.sh"
 
 clear
-echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║${WHITE}${BOLD}     Termux Python Development Manager - Auto Installer     ${NC}${CYAN}║${NC}"
-echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo -e "${CYAN}╔═══════════════════════════════════╗${NC}"
+echo -e "${CYAN}║${WHITE}${BOLD}     MIBTermux - Auto Installer     ${NC}${CYAN}║${NC}"
+echo -e "${CYAN}╚═══════════════════════════════════╝${NC}"
 echo ""
 
 # Funktion zur Statusanzeige
@@ -165,19 +165,19 @@ first_run() {
 # Installation abschließen
 finish_installation() {
     echo ""
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}╔═══════════════════════════════════╗${NC}"
     echo -e "${CYAN}║${WHITE}${BOLD}                    Installation abgeschlossen!                 ${NC}${CYAN}║${NC}"
-    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}╠═══════════════════════════════════╣${NC}"
     echo -e "${CYAN}║${GREEN}✓ Repository geklont/aktualisiert${NC}${CYAN}                              ║${NC}"
     echo -e "${CYAN}║${GREEN}✓ Skript ausführbar gemacht${NC}${CYAN}                                   ║${NC}"
     echo -e "${CYAN}║${GREEN}✓ Autostart eingerichtet${NC}${CYAN}                                       ║${NC}"
     echo -e "${CYAN}║${GREEN}✓ Symlink erstellt (pydev)${NC}${CYAN}                                    ║${NC}"
-    echo -e "${CYAN}╠══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}╠═══════════════════════════════════╣${NC}"
     echo -e "${CYAN}║${WHITE}Nächste Schritte:${NC}${CYAN}                                            ║${NC}"
     echo -e "${CYAN}║${YELLOW}1. Termux neu starten oder 'source ~/.bashrc' ausführen${NC}${CYAN}       ║${NC}"
     echo -e "${CYAN}║${YELLOW}2. Das Menü startet automatisch${NC}${CYAN}                               ║${NC}"
     echo -e "${CYAN}║${YELLOW}3. Oder manuell starten mit 'pydev'${NC}${CYAN}                           ║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════╝${NC}"
     echo ""
 }
 

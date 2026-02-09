@@ -45,9 +45,9 @@ declare -A MODULE_MAPPING=(
 # Funktion zur Anzeige von Header-Informationen
 show_header() {
     clear
-    echo -e "${CYAN}╔════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}╔═══════════════════════════════════╗${NC}"
     echo -e "${CYAN}║${WHITE}${BOLD}           MIB-Termux v1.0${NC}${CYAN}           ║${NC}"
-    echo -e "${CYAN}╠════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}╠═══════════════════════════════════╣${NC}"
     
     # Akkustand anzeigen
     if command -v termux-battery-status &> /dev/null; then
@@ -71,7 +71,7 @@ show_header() {
     
     # Arbeitsverzeichnis anzeigen
     echo -e "${CYAN}║${BLUE} Arbeitsverzeichnis: $PYTHON_DIR${NC}${CYAN}                    ║${NC}"
-    echo -e "${CYAN}╚════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════╝${NC}"
     echo ""
 }
 
@@ -332,10 +332,7 @@ execute_script() {
             fi
         fi
         
-        # Module installieren (nur beim ersten Mal dank Cache)
-        install_python_modules "$selected_script"
-        
-        # Skript ausführen mit python skriptname.py
+        # Skript ausführen mit python skriptname.py (ohne automatische Modul-Installation)
         echo -e "${CYAN}=== Starte Skript mit python $script_name ===${NC}"
         cd "$PYTHON_DIR"
         
@@ -347,8 +344,8 @@ execute_script() {
             echo -e "${GREEN}✓ Skript erfolgreich ausgeführt${NC}"
         else
             echo -e "${RED}✗ Skript mit Exit-Code $exit_code beendet${NC}"
-            echo -e "${YELLOW}Hinweis: Überprüfe den Code und die installierten Module${NC}"
-            echo -e "${CYAN}Tipp: Benutze Option 4 um Modul-Cache zu löschen und neu zu scannen${NC}"
+            echo -e "${YELLOW}Hinweis: Möglicherweise fehlende Module${NC}"
+            echo -e "${CYAN}Tipp: Benutze Option 8 für Requirements.txt oder 9 für Package Manager${NC}"
         fi
         
         echo -e "${CYAN}======================${NC}"
@@ -648,12 +645,26 @@ generate_requirements() {
         1)
             echo -e "${YELLOW}Scanne alle Python-Dateien...${NC}"
             local all_modules=()
-            local py_files=$(find "$PYTHON_DIR" -name "*.py" -type f)
+            local py_files=($(find "$PYTHON_DIR" -name "*.py" -type f))
+            local total_files=${#py_files[@]}
+            local current_file=0
             
-            for file in $py_files; do
-                local file_modules=($(scan_python_imports "$file"))
+            echo -e "${BLUE}Verarbeite $total_files Dateien...${NC}"
+            
+            for file in "${py_files[@]}"; do
+                ((current_file++))
+                echo -ne "\r${CYAN}Datei $current_file/$total_files: $(basename "$file")${NC}"
+                
+                # Schnelles Scannen mit grep statt vollständiger Funktion
+                local file_modules=($(grep -h "^import\|^from.*import" "$file" 2>/dev/null | \
+                    sed 's/from[[:space:]]*\([a-zA-Z_][a-zA-Z0-9_]*\).*/\1/' | \
+                    sed 's/import[[:space:]]*\([a-zA-Z_][a-zA-Z0-9_]*\).*/\1/' | \
+                    sed 's/ as .*//' | \
+                    sort -u))
+                
                 all_modules+=("${file_modules[@]}")
             done
+            echo ""
             
             # Duplikate entfernen und sortieren
             local unique_modules=($(printf '%s\n' "${all_modules[@]}" | sort -u))
@@ -663,21 +674,28 @@ generate_requirements() {
                 return 0
             fi
             
-            echo -e "${GREEN}Gefundene Module:${NC}"
+            echo -e "${GREEN}Gefundene Module: ${#unique_modules[@]}${NC}"
             local requirements_file="$PYTHON_DIR/requirements.txt"
             > "$requirements_file"
             
+            # Schnelle Filterung mit Array
+            local std_libs=(os sys time datetime math random json csv re collections itertools functools operator pathlib urllib http socket threading multiprocessing subprocess shutil tempfile glob fnmatch pickle sqlite3 unittest argparse configparser logging email xml html decimal fractions statistics typing dataclasses enum contextlib io string struct copy weakref gc inspect dis importlib pkgutil warnings traceback types builtins __future__)
+            
             for module in "${unique_modules[@]}"; do
-                # Standardbibliotheken überspringen
-                case "$module" in
-                    os|sys|time|datetime|math|random|json|csv|re|collections|itertools|functools|operator|pathlib|urllib|http|socket|threading|multiprocessing|subprocess|shutil|tempfile|glob|fnmatch|pickle|sqlite3|unittest|argparse|configparser|logging|email|xml|html|decimal|fractions|statistics|typing|dataclasses|enum|contextlib|io|string|struct|copy|weakref|gc|inspect|dis|importlib|pkgutil|warnings|traceback|types|builtins|__future__)
-                continue
-                ;;
-                esac
+                # Schnelle Prüfung ob in Standardbibliothek
+                local is_std=0
+                for std in "${std_libs[@]}"; do
+                    if [ "$module" = "$std" ]; then
+                        is_std=1
+                        break
+                    fi
+                done
                 
-                local pip_name="${MODULE_MAPPING[$module]:-$module}"
-                echo "$pip_name" >> "$requirements_file"
-                echo -e "${GREEN}+ $pip_name${NC}"
+                if [ $is_std -eq 0 ]; then
+                    local pip_name="${MODULE_MAPPING[$module]:-$module}"
+                    echo "$pip_name" >> "$requirements_file"
+                    echo -e "${GREEN}+ $pip_name${NC}"
+                fi
             done
             
             echo -e "${GREEN}Requirements.txt wurde erstellt: $requirements_file${NC}"
@@ -689,32 +707,52 @@ generate_requirements() {
             fi
             
             echo -e "${YELLOW}Gib die Nummer der Datei ein (0 für Abbruch):${NC}"
-            read -p "> " file_choice
-            
-            if [ "$file_choice" -eq 0 ] 2>/dev/null; then
+            read -p "> " index
+            if [ "$index" -eq 0 ] 2>/dev/null; then
                 echo -e "${GRAY}Abgebrochen.${NC}"
                 return 0
             fi
             
             local scripts=($(find "$PYTHON_DIR" -name "*.py" -type f | sort))
-            local index=$((file_choice-1))
+            local selected_index=$((index-1))
             
-            if [ "$index" -ge 0 ] && [ "$index" -lt "${#scripts[@]}" ]; then
-                local selected_file="${scripts[$index]}"
-                local modules=($(scan_python_imports "$selected_file"))
-                local requirements_file="$PYTHON_DIR/requirements_$(basename "$selected_file" .py).txt"
+            if [ "$selected_index" -ge 0 ] && [ "$selected_index" -lt "${#scripts[@]}" ]; then
+                local selected_file="${scripts[$selected_index]}"
+                echo -e "${BLUE}Scanne $(basename "$selected_file")...${NC}"
                 
+                # Schnelles Scannen mit grep
+                local modules=($(grep -h "^import\|^from.*import" "$selected_file" 2>/dev/null | \
+                    sed 's/from[[:space:]]*\([a-zA-Z_][a-zA-Z0-9_]*\).*/\1/' | \
+                    sed 's/import[[:space:]]*\([a-zA-Z_][a-zA-Z0-9_]*\).*/\1/' | \
+                    sed 's/ as .*//' | \
+                    sort -u))
+                
+                if [ ${#modules[@]} -eq 0 ]; then
+                    echo -e "${YELLOW}Keine Module gefunden.${NC}"
+                    return 0
+                fi
+                
+                local requirements_file="$PYTHON_DIR/requirements_$(basename "$selected_file" .py).txt"
                 > "$requirements_file"
                 
+                # Schnelle Filterung mit Array
+                local std_libs=(os sys time datetime math random json csv re collections itertools functools operator pathlib urllib http socket threading multiprocessing subprocess shutil tempfile glob fnmatch pickle sqlite3 unittest argparse configparser logging email xml html decimal fractions statistics typing dataclasses enum contextlib io string struct copy weakref gc inspect dis importlib pkgutil warnings traceback types builtins __future__)
+                
                 for module in "${modules[@]}"; do
-                    case "$module" in
-                        os|sys|time|datetime|math|random|json|csv|re|collections|itertools|functools|operator|pathlib|urllib|http|socket|threading|multiprocessing|subprocess|shutil|tempfile|glob|fnmatch|pickle|sqlite3|unittest|argparse|configparser|logging|email|xml|html|decimal|fractions|statistics|typing|dataclasses|enum|contextlib|io|string|struct|copy|weakref|gc|inspect|dis|importlib|pkgutil|warnings|traceback|types|builtins|__future__)
-                    continue
-                    ;;
-                    esac
+                    # Schnelle Prüfung ob in Standardbibliothek
+                    local is_std=0
+                    for std in "${std_libs[@]}"; do
+                        if [ "$module" = "$std" ]; then
+                            is_std=1
+                            break
+                        fi
+                    done
                     
-                    local pip_name="${MODULE_MAPPING[$module]:-$module}"
-                    echo "$pip_name" >> "$requirements_file"
+                    if [ $is_std -eq 0 ]; then
+                        local pip_name="${MODULE_MAPPING[$module]:-$module}"
+                        echo "$pip_name" >> "$requirements_file"
+                        echo -e "${GREEN}+ $pip_name${NC}"
+                    fi
                 done
                 
                 echo -e "${GREEN}Requirements erstellt: $requirements_file${NC}"
@@ -1065,6 +1103,44 @@ clear_module_cache_menu() {
     read -p "Drücke Enter um fortzufahren..."
 }
 
+# Funktion zum Installieren von Modulen für ein spezifisches Skript
+install_modules_for_script() {
+    echo -e "${BLUE}=== Module für Skript installieren ===${NC}"
+    
+    show_python_scripts
+    if [ $? -ne 0 ]; then
+        return 1
+    fi
+    
+    echo -e "${YELLOW}Gib die Nummer des Skripts ein (0 für Abbruch):${NC}"
+    read -p "> " script_choice
+    
+    if [ "$script_choice" -eq 0 ] 2>/dev/null; then
+        echo -e "${GRAY}Abgebrochen.${NC}"
+        return 0
+    fi
+    
+    local scripts=($(find "$PYTHON_DIR" -name "*.py" -type f | sort))
+    local index=$((script_choice-1))
+    
+    if [ "$index" -ge 0 ] && [ "$index" -lt "${#scripts[@]}" ]; then
+        local selected_script="${scripts[$index]}"
+        local script_name=$(basename "$selected_script")
+        echo -e "${BLUE}Installiere Module für: $script_name${NC}"
+        
+        # Modul-Installation durchführen
+        install_python_modules "$selected_script"
+        
+        echo -e "${GREEN}Modul-Installation für $script_name abgeschlossen.${NC}"
+        echo -e "${CYAN}Jetzt kannst du das Skript mit Option 1 ausführen.${NC}"
+    else
+        echo -e "${RED}Ungültige Auswahl.${NC}"
+    fi
+    
+    echo ""
+    read -p "Drücke Enter um fortzufahren..."
+}
+
 # Hauptmenü anzeigen
 show_main_menu() {
     echo -e "${BOLD}${WHITE}=== Hauptmenü ===${NC}"
@@ -1072,14 +1148,15 @@ show_main_menu() {
     echo -e "${CYAN}2.${NC} Python-Skript bearbeiten"
     echo -e "${CYAN}3.${NC} Neues Python-Skript erstellen"
     echo -e "${CYAN}4.${NC} Modul-Cache löschen"
-    echo -e "${CYAN}5.${NC} __pycache__ löschen"
-    echo -e "${CYAN}6.${NC} Shell öffnen"
-    echo -e "${CYAN}7.${NC} Git Manager"
-    echo -e "${CYAN}8.${NC} Requirements.txt Generator"
-    echo -e "${CYAN}9.${NC} Requirements.txt installieren"
-    echo -e "${CYAN}10.${NC} Package Manager"
-    echo -e "${CYAN}11.${NC} Performance Monitor"
-    echo -e "${CYAN}12.${NC} Umgebung neu einrichten"
+    echo -e "${CYAN}5.${NC} Module für Skript installieren"
+    echo -e "${CYAN}6.${NC} __pycache__ löschen"
+    echo -e "${CYAN}7.${NC} Shell öffnen"
+    echo -e "${CYAN}8.${NC} Git Manager"
+    echo -e "${CYAN}9.${NC} Requirements.txt Generator"
+    echo -e "${CYAN}10.${NC} Requirements.txt installieren"
+    echo -e "${CYAN}11.${NC} Package Manager"
+    echo -e "${CYAN}12.${NC} Performance Monitor"
+    echo -e "${CYAN}13.${NC} Umgebung neu einrichten"
     echo -e "${CYAN}0.${NC} Beenden"
     echo ""
     echo -e "${YELLOW}Wähle eine Option:${NC}"
@@ -1115,27 +1192,30 @@ main() {
                 clear_module_cache_menu
                 ;;
             5)
-                clean_pycache
+                install_modules_for_script
                 ;;
             6)
-                open_shell
+                clean_pycache
                 ;;
             7)
-                git_manager
+                open_shell
                 ;;
             8)
-                generate_requirements
+                git_manager
                 ;;
             9)
-                install_requirements_menu
+                generate_requirements
                 ;;
             10)
-                package_manager
+                install_requirements_menu
                 ;;
             11)
-                performance_monitor
+                package_manager
                 ;;
             12)
+                performance_monitor
+                ;;
+            13)
                 setup_environment
                 ;;
             0)
